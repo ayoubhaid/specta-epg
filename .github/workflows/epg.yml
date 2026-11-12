@@ -29,13 +29,17 @@ jobs:
       - name: Scrape
         run: |
           cd grabber
-          npm run grab --- --channels=../build/custom.channels.xml --output=../build/raw.xml \
-            --maxConnections=5 --days=3 --timeout=30000 || true
+          echo "channels to grab: $(grep -c '<channel ' ../build/custom.channels.xml || true)"
+          npm run grab -- --channels=../build/custom.channels.xml --output=../build/raw.xml \
+            --maxConnections=5 --days=3 --timeout=30000 2>&1 | tee ../build/grab.log | tail -n 40 || true
+          ls -la ../build
+          [ -f ../build/raw.xml ] || { [ -f guide.xml ] && cp guide.xml ../build/raw.xml; } || true
       - name: Build final XMLTV
         run: |
           mkdir -p public
           python scripts/merge_guide.py build/raw.xml build/mapping.json public/guide.xml
           cp build/coverage.csv public/coverage.csv
+          cp build/grab.log public/grab.log 2>/dev/null || true
       - uses: actions/upload-pages-artifact@v3
         with: { path: public }
       - id: deploy

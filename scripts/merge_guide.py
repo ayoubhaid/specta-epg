@@ -11,7 +11,12 @@ from copy import deepcopy
 
 raw, mp, out = sys.argv[1:4]
 mapping = json.load(open(mp))
-tv = ET.parse(raw).getroot()
+import os
+try:
+    tv = ET.parse(raw).getroot()
+except (FileNotFoundError, ET.ParseError) as e:
+    print(f"WARNING: no usable raw guide ({e}); writing channels without programmes")
+    tv = ET.Element("tv")
 progs = {}
 for p in tv.findall("programme"):
     progs.setdefault(p.get("channel"), []).append(p)
@@ -24,7 +29,7 @@ for cid, m in mapping.items():
     src = m.get("feeds_from", cid)
     plist = progs.get(src, [])
     for xid in [m["primary"], *m["aliases"]]:
-        if xid in written:          # several CSV rows share one provider id
+        if xid in written:
             continue
         written.add(xid)
         ch = ET.SubElement(res, "channel", id=xid)
