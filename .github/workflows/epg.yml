@@ -34,7 +34,7 @@ jobs:
           echo "channels to grab: $(grep -c '<channel ' ../build/custom.channels.xml || true)"
           npm run grab -- --channels=../build/custom.channels.xml --output=../build/raw.xml \
             --maxConnections=5 --days=3 --timeout=30000 2>&1 | tee ../build/grab.full.log | tail -n 40 || true
-          grep -E '^\\[info\\]' ../build/grab.full.log > ../build/grab.log || true
+          grep -E '^\\[info\\]|^\\[error\\]|^\\[warn\\]' ../build/grab.full.log > ../build/grab.log || true
           ls -la ../build
           [ -f ../build/raw.xml ] || { [ -f guide.xml ] && cp guide.xml ../build/raw.xml; } || true
       - name: Build final XMLTV and reports
