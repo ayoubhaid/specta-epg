@@ -1,7 +1,7 @@
 """Match channels in data/channels.csv to iptv-org/epg site grabbers.
 
 usage: build_channels.py <path-to-iptv-org-epg-clone> <out-dir>
-Writes: custom.channels.xml, mapping.json, coverage.csv
+Writes: custom.channels.xml (input for the grabber), mapping.json, coverage.csv
 """
 import sys, json, glob, difflib, csv
 import xml.etree.ElementTree as ET
@@ -12,6 +12,7 @@ from common import norm, is_vod, split_ids, COUNTRY
 epg_dir, out = sys.argv[1], sys.argv[2]
 SITE_PRIORITY = [l.strip() for l in open("data/site_priority.txt") if l.strip() and not l.startswith("#")]
 prio = {s: i for i, s in enumerate(SITE_PRIORITY)}
+BLOCK = {l.strip() for l in open("data/site_blocklist.txt") if l.strip() and not l.startswith("#")}
 
 by_id, by_name = defaultdict(list), defaultdict(list)
 for f in glob.glob(f"{epg_dir}/sites/*/*.channels.xml"):
@@ -22,7 +23,7 @@ for f in glob.glob(f"{epg_dir}/sites/*/*.channels.xml"):
     for c in root.iter("channel"):
         e = dict(site=c.get("site"), site_id=c.get("site_id"), xmltv_id=c.get("xmltv_id") or "",
                  lang=c.get("lang") or "en", name=(c.text or "").strip())
-        if not e["site"] or not e["site_id"]:
+        if not e["site"] or not e["site_id"] or e["site"] in BLOCK:
             continue
         if e["xmltv_id"]:
             by_id[e["xmltv_id"].split("@")[0].lower()].append(e)

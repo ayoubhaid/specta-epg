@@ -1,0 +1,8 @@
+# sites that failed from GitHub Actions runners (403 / DNS / TLS / empty). Skipped when matching.
+tvprofil.com
+sat.tv
+maxtvgo.mk
+osn.com
+m.tv.sms.cz
+programme-tv.vini.pf
+tvarenasport.com

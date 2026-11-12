@@ -29,7 +29,7 @@ for cid, m in mapping.items():
     src = m.get("feeds_from", cid)
     plist = progs.get(src, [])
     for xid in [m["primary"], *m["aliases"]]:
-        if xid in written:
+        if xid in written:          # several CSV rows share one provider id
             continue
         written.add(xid)
         ch = ET.SubElement(res, "channel", id=xid)
