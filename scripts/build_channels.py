@@ -1,101 +1,165 @@
-"""Match channels in data/channels.csv to iptv-org/epg site grabbers.
+"""Match provider channels to available iptv-org EPG grabbers.
 
 usage: build_channels.py <path-to-iptv-org-epg-clone> <out-dir>
-Writes: custom.channels.xml (input for the grabber), mapping.json, coverage.csv
+Writes custom.channels.xml, mapping.json and coverage.csv.
 """
-import sys, json, glob, difflib, csv
+import sys
+import json
+import glob
+import difflib
+import csv
+import os
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 import pandas as pd
 from common import norm, is_vod, split_ids, COUNTRY
 
-epg_dir, out = sys.argv[1], sys.argv[2]
-SITE_PRIORITY = [l.strip() for l in open("data/site_priority.txt") if l.strip() and not l.startswith("#")]
-prio = {s: i for i, s in enumerate(SITE_PRIORITY)}
-BLOCK = {l.strip() for l in open("data/site_blocklist.txt") if l.strip() and not l.startswith("#")}
+epg_dir, out_dir = sys.argv[1], sys.argv[2]
+os.makedirs(out_dir, exist_ok=True)
+
+def read_lines(path):
+    with open(path, encoding="utf-8") as f:
+        return [line.strip() for line in f if line.strip() and not line.lstrip().startswith("#")]
+
+SITE_PRIORITY = read_lines("data/site_priority.txt")
+prio = {site: i for i, site in enumerate(SITE_PRIORITY)}
+BLOCK = set(read_lines("data/site_blocklist.txt"))
 
 by_id, by_name = defaultdict(list), defaultdict(list)
-for f in glob.glob(f"{epg_dir}/sites/*/*.channels.xml"):
+for path in glob.glob(os.path.join(epg_dir, "sites", "*", "*.channels.xml")):
     try:
-        root = ET.parse(f).getroot()
-    except ET.ParseError:
+        root = ET.parse(path).getroot()
+    except (ET.ParseError, OSError):
         continue
-    for c in root.iter("channel"):
-        e = dict(site=c.get("site"), site_id=c.get("site_id"), xmltv_id=c.get("xmltv_id") or "",
-                 lang=c.get("lang") or "en", name=(c.text or "").strip())
-        if not e["site"] or not e["site_id"] or e["site"] in BLOCK:
+    for channel in root.iter("channel"):
+        item = {
+            "site": channel.get("site"),
+            "site_id": channel.get("site_id"),
+            "xmltv_id": channel.get("xmltv_id") or "",
+            "lang": channel.get("lang") or "en",
+            "name": (channel.text or "").strip(),
+        }
+        if not item["site"] or not item["site_id"] or item["site"] in BLOCK:
             continue
-        if e["xmltv_id"]:
-            by_id[e["xmltv_id"].split("@")[0].lower()].append(e)
-        by_name[norm(e["name"])].append(e)
+        if item["xmltv_id"]:
+            by_id[item["xmltv_id"].split("@")[0].lower()].append(item)
+        normalized = norm(item["name"])
+        if normalized:
+            by_name[normalized].append(item)
+
 all_names = list(by_name)
+MAX_CANDIDATES = 5
 
-MAXC = 3
-def ranked(entries, cc):
-    def key(e):
-        suffix = e["xmltv_id"].split("@")[0].rsplit(".", 1)[-1].lower()
-        return (0 if cc and suffix == cc else 1, prio.get(e["site"], 999), e["site"])
-    out, seen_sites = [], set()
-    for e in sorted(entries, key=key):
-        if e["site"] not in seen_sites:
-            seen_sites.add(e["site"]); out.append(e)
-    return out
+def ranked(entries, country_code):
+    def rank(item):
+        suffix = item["xmltv_id"].split("@")[0].rsplit(".", 1)[-1].lower()
+        return (0 if country_code and suffix == country_code else 1,
+                prio.get(item["site"], 999), item["site"], item["site_id"])
+    result, seen = [], set()
+    for item in sorted(entries, key=rank):
+        key = (item["site"], item["site_id"])
+        if key not in seen:
+            seen.add(key)
+            result.append(item)
+    return result
 
-df = pd.read_csv("data/channels.csv")
+df = pd.read_csv("data/channels.csv").fillna("")
 mapping, rows = {}, []
-for r in df.itertuples():
-    cc = COUNTRY.get(r.region_code) if isinstance(r.region_code, str) else None
-    ids = split_ids(r.epg_ids)
-    names = [r.channel_name] + [n.strip() for n in str(r.playlist_names).split(" | ")]
-    status, cands, how = "unmatched", [], ""
-    if is_vod(r.channel_name):
+for row in df.itertuples(index=False):
+    region = getattr(row, "region_code", "")
+    country = COUNTRY.get(region) if isinstance(region, str) else None
+    ids = split_ids(getattr(row, "epg_ids", ""))
+    channel_name = str(getattr(row, "channel_name", "")).strip()
+    playlist_names = str(getattr(row, "playlist_names", "")).split(" | ")
+    names = [channel_name] + [name.strip() for name in playlist_names if name.strip()]
+    status, method, pool = "unmatched", "", []
+
+    if is_vod(channel_name):
         status = "skipped_vod"
     else:
-        pool = []
-        for i in ids:
-            if i.lower() in by_id:
-                pool += ranked(by_id[i.lower()], cc); how = how or "epg_id"
-        for n in map(norm, names):
-            if n and n in by_name:
-                pool += ranked(by_name[n], cc); how = how or "name"
+        for external_id in ids:
+            matches = by_id.get(external_id.lower(), [])
+            if matches:
+                pool.extend(ranked(matches, country))
+                method = method or "epg_id"
+        for name in names:
+            normalized = norm(name)
+            matches = by_name.get(normalized, []) if normalized else []
+            if matches:
+                pool.extend(ranked(matches, country))
+                method = method or "name"
+
         if not pool:
-            n = norm(r.channel_name)
-            m = difflib.get_close_matches(n, all_names, n=1, cutoff=0.92) if len(n) > 4 else []
-            if m:
-                pool = ranked(by_name[m[0]], cc); how = "fuzzy"
-        seen_k = set()
-        for e in pool:
-            k = (e["site"], e["site_id"])
-            if k not in seen_k:
-                seen_k.add(k); cands.append(e)
-            if len(cands) >= MAXC:
+            normalized = norm(channel_name)
+            close = difflib.get_close_matches(normalized, all_names, n=1, cutoff=0.92) if len(normalized) > 4 else []
+            if close:
+                pool = ranked(by_name[close[0]], country)
+                method = "fuzzy"
+
+        candidates, seen = [], set()
+        for item in pool:
+            key = (item["site"], item["site_id"])
+            if key not in seen:
+                seen.add(key)
+                candidates.append(item)
+            if len(candidates) >= MAX_CANDIDATES:
                 break
-        if cands:
+        pool = candidates
+        if pool:
             status = "matched"
-    primary = ids[0] if ids else r.channel_id
-    mapping[r.channel_id] = dict(primary=primary, aliases=ids[1:], names=sorted(set(names)),
-                                 status=status, sources=cands)
-    rows.append([r.channel_id, r.broadcaster, r.channel_name, status, how,
-                 " | ".join(f'{e["site"]}:{e["site_id"]}' for e in cands)])
+
+    primary = ids[0] if ids else str(getattr(row, "channel_id"))
+    mapping[str(getattr(row, "channel_id"))] = {
+        "primary": primary,
+        "aliases": ids[1:],
+        "names": sorted(set(name for name in names if name)),
+        "status": status,
+        "match_method": method,
+        "sources": pool,
+    }
+    rows.append([
+        getattr(row, "channel_id"), getattr(row, "broadcaster"), channel_name,
+        status, method,
+        " | ".join(f'{item["site"]}:{item["site_id"]}' for item in pool),
+        len(pool),
+    ])
 
 grab_ids, root = {}, ET.Element("channels")
-for cid, m in mapping.items():
-    m["candidates"] = []
-    for e in m["sources"]:
-        k = (e["site"], e["site_id"])
-        if k not in grab_ids:
-            gid = f"g{len(grab_ids)}"
-            grab_ids[k] = gid
-            el = ET.SubElement(root, "channel", site=e["site"], lang=e["lang"],
-                               xmltv_id=gid, site_id=e["site_id"])
-            el.text = e["name"] or m["names"][0]
-        m["candidates"].append(grab_ids[k])
-    del m["sources"]
+for channel_id, item in mapping.items():
+    item["candidates"] = []
+    for source in item.pop("sources"):
+        key = (source["site"], source["site_id"])
+        if key not in grab_ids:
+            grab_id = f"g{len(grab_ids)}"
+            grab_ids[key] = grab_id
+            element = ET.SubElement(
+                root, "channel", site=source["site"], lang=source["lang"],
+                xmltv_id=grab_id, site_id=source["site_id"]
+            )
+            element.text = source["name"] or (item["names"][0] if item["names"] else channel_id)
+        item["candidates"].append(grab_ids[key])
+
 ET.indent(root)
-ET.ElementTree(root).write(f"{out}/custom.channels.xml", encoding="utf-8", xml_declaration=True)
-json.dump(mapping, open(f"{out}/mapping.json", "w"), ensure_ascii=False)
-with open(f"{out}/coverage.csv", "w", newline="") as f:
-    w = csv.writer(f); w.writerow(["channel_id", "broadcaster", "channel_name", "status", "how", "sources"]); w.writerows(rows)
-cov = pd.DataFrame(rows, columns=["id", "b", "n", "status", "how", "s"])
-print(cov.status.value_counts().to_string())
-print(cov.assign(ok=cov.status == "matched").groupby("b").ok.agg(["sum", "count"]).to_string())
+ET.ElementTree(root).write(
+    os.path.join(out_dir, "custom.channels.xml"),
+    encoding="utf-8", xml_declaration=True
+)
+with open(os.path.join(out_dir, "mapping.json"), "w", encoding="utf-8") as f:
+    json.dump(mapping, f, ensure_ascii=False, indent=2)
+
+with open(os.path.join(out_dir, "coverage.csv"), "w", newline="", encoding="utf-8") as f:
+    writer = csv.writer(f)
+    writer.writerow(["channel_id", "broadcaster", "channel_name", "status",
+                     "match_method", "sources", "candidate_count"])
+    writer.writerows(rows)
+
+coverage = pd.DataFrame(rows, columns=[
+    "channel_id", "broadcaster", "channel_name", "status",
+    "match_method", "sources", "candidate_count"
+])
+print("Channel matching:")
+print(coverage["status"].value_counts().to_string())
+print("\nMatching by broadcaster:")
+print(coverage.assign(matched=coverage.status == "matched")
+      .groupby("broadcaster").matched.agg(["sum", "count"]).to_string())
+print(f"\nUnique grabber channel entries: {len(grab_ids)}")

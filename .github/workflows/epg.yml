@@ -1,6 +1,6 @@
 name: Build EPG
 on:
-  schedule: [{ cron: "0 */6 * * *" }]   # every 6 hours
+  schedule: [{ cron: "0 */6 * * *" }]
   workflow_dispatch:
 permissions: { contents: read, pages: write, id-token: write }
 concurrency: { group: epg, cancel-in-progress: true }
@@ -32,16 +32,31 @@ jobs:
           echo "channels to grab: $(grep -c '<channel ' ../build/custom.channels.xml || true)"
           npm run grab -- --channels=../build/custom.channels.xml --output=../build/raw.xml \
             --maxConnections=5 --days=3 --timeout=30000 2>&1 | tee ../build/grab.full.log | tail -n 40 || true
-          grep -E '^\[info\]' ../build/grab.full.log > ../build/grab.log || true
+          grep -E '^\\[info\\]' ../build/grab.full.log > ../build/grab.log || true
           ls -la ../build
-          # fall back to the default output path if --output was ignored
           [ -f ../build/raw.xml ] || { [ -f guide.xml ] && cp guide.xml ../build/raw.xml; } || true
-      - name: Build final XMLTV
+      - name: Build final XMLTV and reports
         run: |
           mkdir -p public
           python scripts/merge_guide.py build/raw.xml build/mapping.json public/guide.xml
           cp build/coverage.csv public/coverage.csv
+          cp build/mapping.json public/mapping.json
           cp build/grab.log public/grab.log 2>/dev/null || true
+          cp build/grab.full.log public/grab.full.log 2>/dev/null || true
+      - name: Validate XMLTV and reports
+        run: |
+          python - <<'PY'
+          import csv, gzip, xml.etree.ElementTree as ET
+          root = ET.parse("public/guide.xml").getroot()
+          ids = {channel.get("id") for channel in root.findall("channel")}
+          programmes = root.findall("programme")
+          missing = [p.get("channel") for p in programmes if p.get("channel") not in ids]
+          assert not missing, f"{len(missing)} programmes reference missing channels"
+          with gzip.open("public/guide.xml.gz", "rb") as f:
+              gz_root = ET.fromstring(f.read())
+          assert len(gz_root.findall("programme")) == len(programmes)
+          print(f"Validated {len(ids)} channel IDs and {len(programmes)} programmes")
+          PY
       - uses: actions/upload-pages-artifact@v3
         with: { path: public }
       - id: deploy
