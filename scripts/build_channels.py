@@ -30,11 +30,16 @@ for f in glob.glob(f"{epg_dir}/sites/*/*.channels.xml"):
         by_name[norm(e["name"])].append(e)
 all_names = list(by_name)
 
-def best(entries, cc):
+MAXC = 3
+def ranked(entries, cc):
     def key(e):
         suffix = e["xmltv_id"].split("@")[0].rsplit(".", 1)[-1].lower()
         return (0 if cc and suffix == cc else 1, prio.get(e["site"], 999), e["site"])
-    return sorted(entries, key=key)[0]
+    out, seen_sites = [], set()
+    for e in sorted(entries, key=key):
+        if e["site"] not in seen_sites:
+            seen_sites.add(e["site"]); out.append(e)
+    return out
 
 df = pd.read_csv("data/channels.csv")
 mapping, rows = {}, []
@@ -42,48 +47,55 @@ for r in df.itertuples():
     cc = COUNTRY.get(r.region_code) if isinstance(r.region_code, str) else None
     ids = split_ids(r.epg_ids)
     names = [r.channel_name] + [n.strip() for n in str(r.playlist_names).split(" | ")]
-    status, hit, how = "unmatched", None, ""
+    status, cands, how = "unmatched", [], ""
     if is_vod(r.channel_name):
         status = "skipped_vod"
     else:
+        pool = []
         for i in ids:
             if i.lower() in by_id:
-                hit, how = best(by_id[i.lower()], cc), "epg_id"; break
-        if not hit:
-            for n in map(norm, names):
-                if n and n in by_name:
-                    hit, how = best(by_name[n], cc), "name"; break
-        if not hit:
+                pool += ranked(by_id[i.lower()], cc); how = how or "epg_id"
+        for n in map(norm, names):
+            if n and n in by_name:
+                pool += ranked(by_name[n], cc); how = how or "name"
+        if not pool:
             n = norm(r.channel_name)
             m = difflib.get_close_matches(n, all_names, n=1, cutoff=0.92) if len(n) > 4 else []
             if m:
-                hit, how = best(by_name[m[0]], cc), "fuzzy"
-        if hit:
+                pool = ranked(by_name[m[0]], cc); how = "fuzzy"
+        seen_k = set()
+        for e in pool:
+            k = (e["site"], e["site_id"])
+            if k not in seen_k:
+                seen_k.add(k); cands.append(e)
+            if len(cands) >= MAXC:
+                break
+        if cands:
             status = "matched"
     primary = ids[0] if ids else r.channel_id
     mapping[r.channel_id] = dict(primary=primary, aliases=ids[1:], names=sorted(set(names)),
-                                 status=status, source=hit)
+                                 status=status, sources=cands)
     rows.append([r.channel_id, r.broadcaster, r.channel_name, status, how,
-                 hit["site"] if hit else "", hit["site_id"] if hit else ""])
+                 " | ".join(f'{e["site"]}:{e["site_id"]}' for e in cands)])
 
-seen, root = {}, ET.Element("channels")
+grab_ids, root = {}, ET.Element("channels")
 for cid, m in mapping.items():
-    s = m["source"]
-    if not s:
-        continue
-    k = (s["site"], s["site_id"])
-    if k in seen:
-        m["feeds_from"] = seen[k]
-        continue
-    seen[k] = cid
-    el = ET.SubElement(root, "channel", site=s["site"], lang=s["lang"],
-                       xmltv_id=cid, site_id=s["site_id"])
-    el.text = s["name"] or m["names"][0]
+    m["candidates"] = []
+    for e in m["sources"]:
+        k = (e["site"], e["site_id"])
+        if k not in grab_ids:
+            gid = f"g{len(grab_ids)}"
+            grab_ids[k] = gid
+            el = ET.SubElement(root, "channel", site=e["site"], lang=e["lang"],
+                               xmltv_id=gid, site_id=e["site_id"])
+            el.text = e["name"] or m["names"][0]
+        m["candidates"].append(grab_ids[k])
+    del m["sources"]
 ET.indent(root)
 ET.ElementTree(root).write(f"{out}/custom.channels.xml", encoding="utf-8", xml_declaration=True)
 json.dump(mapping, open(f"{out}/mapping.json", "w"), ensure_ascii=False)
 with open(f"{out}/coverage.csv", "w", newline="") as f:
-    w = csv.writer(f); w.writerow(["channel_id", "broadcaster", "channel_name", "status", "how", "site", "site_id"]); w.writerows(rows)
-cov = pd.DataFrame(rows, columns=["id", "b", "n", "status", "how", "s", "sid"])
+    w = csv.writer(f); w.writerow(["channel_id", "broadcaster", "channel_name", "status", "how", "sources"]); w.writerows(rows)
+cov = pd.DataFrame(rows, columns=["id", "b", "n", "status", "how", "s"])
 print(cov.status.value_counts().to_string())
 print(cov.assign(ok=cov.status == "matched").groupby("b").ok.agg(["sum", "count"]).to_string())

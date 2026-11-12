@@ -26,8 +26,11 @@ written, with_data = set(), 0
 for cid, m in mapping.items():
     if m["status"] == "skipped_vod":
         continue
-    src = m.get("feeds_from", cid)
-    plist = progs.get(src, [])
+    plist = []
+    for gid in m.get("candidates", []):          # first candidate that returned data wins
+        if progs.get(gid):
+            plist = progs[gid]
+            break
     for xid in [m["primary"], *m["aliases"]]:
         if xid in written:          # several CSV rows share one provider id
             continue

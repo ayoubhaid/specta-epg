@@ -1,3 +1,4 @@
+# sites that failed from GitHub Actions runners (403 / DNS / TLS / empty). Skipped when matching.
 tvprofil.com
 sat.tv
 maxtvgo.mk
@@ -19,4 +20,3 @@ foxsports.com.au
 ziggogo.tv
 orangetv.orange.es
 tv24.co.uk
-canalplus.com
