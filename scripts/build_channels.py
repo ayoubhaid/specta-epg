@@ -48,7 +48,7 @@ for path in glob.glob(os.path.join(epg_dir, "sites", "*", "*.channels.xml")):
             by_name[normalized].append(item)
 
 all_names = list(by_name)
-MAX_CANDIDATES = 5
+MAX_CANDIDATES = 8
 
 def ranked(entries, country_code):
     def rank(item):
@@ -116,6 +116,7 @@ for row in df.itertuples(index=False):
         "status": status,
         "match_method": method,
         "sources": pool,
+        "candidate_sources": [],
     }
     rows.append([
         getattr(row, "channel_id"), getattr(row, "broadcaster"), channel_name,
@@ -138,6 +139,14 @@ for channel_id, item in mapping.items():
             )
             element.text = source["name"] or (item["names"][0] if item["names"] else channel_id)
         item["candidates"].append(grab_ids[key])
+        item["candidate_sources"].append({
+            "grab_id": grab_ids[key],
+            "site": source["site"],
+            "site_id": source["site_id"],
+            "xmltv_id": source["xmltv_id"],
+            "name": source["name"],
+            "lang": source["lang"],
+        })
 
 ET.indent(root)
 ET.ElementTree(root).write(
@@ -146,6 +155,17 @@ ET.ElementTree(root).write(
 )
 with open(os.path.join(out_dir, "mapping.json"), "w", encoding="utf-8") as f:
     json.dump(mapping, f, ensure_ascii=False, indent=2)
+
+with open(os.path.join(out_dir, "source_manifest.csv"), "w", newline="", encoding="utf-8") as f:
+    writer = csv.DictWriter(f, fieldnames=[
+        "grab_id", "site", "site_id", "xmltv_id", "name", "lang"
+    ])
+    writer.writeheader()
+    manifest = {}
+    for item in mapping.values():
+        for source in item.get("candidate_sources", []):
+            manifest[source["grab_id"]] = source
+    writer.writerows(manifest[key] for key in sorted(manifest, key=lambda x: int(x[1:])))
 
 with open(os.path.join(out_dir, "coverage.csv"), "w", newline="", encoding="utf-8") as f:
     writer = csv.writer(f)
