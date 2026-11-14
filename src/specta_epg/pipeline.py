@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import json
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 
 from .inventory import load_inventory
-from .matching import load_reviewed_mappings
+from .matching import load_reviewed_mappings, write_mapping_suggestions
 from .models import ChannelSchedule
 from .output import write_outputs
 from .providers.bein_mena import BeinMenaAdapter
@@ -21,6 +20,12 @@ def discover(provider_id: str) -> list[dict]:
     if provider_id not in registry:
         raise ValueError(f"Unknown or disabled provider: {provider_id}")
     return registry[provider_id].list_channels()
+
+
+def suggest_mappings(inventory_path: str, provider_id: str, output_path: str) -> dict:
+    inventory = load_inventory(inventory_path)
+    catalog = discover(provider_id)
+    return write_mapping_suggestions(inventory, catalog, provider_id, output_path)
 
 
 def build(inventory_path: str, mapping_path: str, output_dir: str, days: int = 5) -> dict:
@@ -53,6 +58,6 @@ def build(inventory_path: str, mapping_path: str, output_dir: str, days: int = 5
         1 for channel in channels if channel.id not in mappings
     )
     Path(output_dir, "coverage.json").write_text(
-        json.dumps(coverage, indent=2) + "\n", encoding="utf-8"
+        json.dumps(coverage, indent=2) + "\\n", encoding="utf-8"
     )
     return coverage
