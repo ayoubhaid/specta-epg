@@ -20,7 +20,7 @@ def load_reviewed_mappings(path: str | Path) -> dict[str, dict]:
         provider_id = str(entry.get("providerChannelId") or "").strip()
         if not inventory_id or not provider or not provider_id:
             raise ValueError("Mappings require inventoryId, provider and providerChannelId")
-        if not entry.get("reviewed", False):
+        if entry.get("reviewed") is not True:
             continue
         if inventory_id in result:
             raise ValueError(f"Duplicate reviewed mapping for inventory ID: {inventory_id}")
