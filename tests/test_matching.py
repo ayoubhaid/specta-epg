@@ -16,11 +16,13 @@ class MappingTests(unittest.TestCase):
                 "mappings": [
                     {"inventoryId": "a", "provider": "bein_mena", "providerChannelId": "1", "reviewed": True},
                     {"inventoryId": "b", "provider": "bein_mena", "providerChannelId": "2", "reviewed": False},
+                    {"inventoryId": "c", "provider": "bein_mena", "providerChannelId": "3", "reviewed": "false"},
                 ],
             }))
             result = load_reviewed_mappings(path)
             self.assertIn("a", result)
             self.assertNotIn("b", result)
+            self.assertNotIn("c", result)
 
     def test_suggestions_are_exact_and_never_approved(self):
         inventory = [InventoryChannel("a", "beIN SPORTS 1 HD")]
