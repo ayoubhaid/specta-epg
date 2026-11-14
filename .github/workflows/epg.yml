@@ -1,6 +1,10 @@
 name: Build Specta EPG
 
 on:
+  push:
+    branches: [main, "feat/**"]
+  pull_request:
+    branches: [main]
   schedule:
     - cron: "0 */6 * * *"
   workflow_dispatch:
@@ -15,7 +19,23 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run offline test suite
+        env:
+          PYTHONPATH: src
+        run: python -m unittest discover -s tests -v
+
   build:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 60
     environment:
@@ -30,11 +50,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
-      - name: Run offline test suite
-        env:
-          PYTHONPATH: src
-        run: python -m unittest discover -s tests -v
 
       - name: Check private inventory configuration
         env:
@@ -56,6 +71,7 @@ jobs:
 
       - name: Discover beIN provider channel IDs
         run: |
+          mkdir -p build
           python scripts/run_epg.py discover --provider bein_mena --output build/bein-provider-catalog.json
 
       - name: Build curated EPG feeds
