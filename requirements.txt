@@ -1,2 +1,0 @@
-# Runtime has no third-party dependencies. tzdata keeps Africa/Casablanca rules current.
-tzdata

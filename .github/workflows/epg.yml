@@ -1,0 +1,48 @@
+name: Build EPG
+on:
+  schedule: [{ cron: "0 */6 * * *" }]   # every 6 hours
+  workflow_dispatch:
+permissions: { contents: read, pages: write, id-token: write }
+concurrency: { group: epg, cancel-in-progress: true }
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    environment: { name: github-pages, url: "${{ steps.deploy.outputs.page_url }}" }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install pandas
+      - name: Get the iptv-org grabber
+        run: |
+          git clone --depth 1 https://github.com/iptv-org/epg.git grabber
+          cp -r custom_sites/* grabber/sites/ 2>/dev/null || true
+          cd grabber && npm install
+      - name: Match my channels to scrapers
+        run: |
+          mkdir -p build
+          python scripts/build_channels.py grabber build
+      - name: Scrape
+        run: |
+          cd grabber
+          echo "channels to grab: $(grep -c '<channel ' ../build/custom.channels.xml || true)"
+          npm run grab -- --channels=../build/custom.channels.xml --output=../build/raw.xml \
+            --maxConnections=5 --days=3 --timeout=30000 2>&1 | tee ../build/grab.full.log | tail -n 40 || true
+          grep -E '^\[info\]' ../build/grab.full.log > ../build/grab.log || true
+          ls -la ../build
+          # fall back to the default output path if --output was ignored
+          [ -f ../build/raw.xml ] || { [ -f guide.xml ] && cp guide.xml ../build/raw.xml; } || true
+      - name: Build final XMLTV
+        run: |
+          mkdir -p public
+          python scripts/merge_guide.py build/raw.xml build/mapping.json public/guide.xml
+          cp build/coverage.csv public/coverage.csv
+          cp build/grab.log public/grab.log 2>/dev/null || true
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: public }
+      - id: deploy
+        uses: actions/deploy-pages@v4
