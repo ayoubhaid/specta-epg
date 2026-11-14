@@ -13,7 +13,7 @@ FORBIDDEN_FIELD_PARTS = (
     "playlist", "m3u", "authorization", "cookie", "secret", "apikey",
 )
 SENSITIVE_VALUE = re.compile(
-    r"(?:https?|rtmp|rtsp|udp)://|(?:password|token|authorization|cookie)\\s*=|\\b(?:bearer|basic)\\s+",
+    r"(?:https?|rtmp|rtsp|udp)://|(?:password|token|authorization|cookie)\s*=|\b(?:bearer|basic)\s+",
     re.IGNORECASE,
 )
 
