@@ -11,8 +11,29 @@ from .output import write_outputs
 from .providers.bein_mena import BeinMenaAdapter
 
 
+ROOT = Path(__file__).resolve().parents[2]
+ADAPTER_FACTORIES = {"bein_mena": BeinMenaAdapter}
+
+
 def adapters() -> dict:
-    return {"bein_mena": BeinMenaAdapter()}
+    registry_path = ROOT / "config" / "providers.json"
+    payload = json.loads(registry_path.read_text(encoding="utf-8"))
+    if payload.get("schemaVersion") != 1 or not isinstance(payload.get("providers"), list):
+        raise ValueError("Invalid provider registry schema")
+    active = {}
+    seen = set()
+    for provider in payload["providers"]:
+        provider_id = str(provider.get("id") or "").strip()
+        adapter_id = str(provider.get("adapter") or "").strip()
+        if not provider_id or provider_id in seen:
+            raise ValueError(f"Missing or duplicate provider ID in registry: {provider_id}")
+        seen.add(provider_id)
+        if not provider.get("enabled", False):
+            continue
+        if adapter_id not in ADAPTER_FACTORIES:
+            raise ValueError(f"No native adapter is registered for provider: {adapter_id}")
+        active[provider_id] = ADAPTER_FACTORIES[adapter_id]()
+    return active
 
 
 def discover(provider_id: str) -> list[dict]:
@@ -43,7 +64,7 @@ def build(inventory_path: str, mapping_path: str, output_dir: str, days: int = 5
         if mapping:
             provider_id = mapping["provider"]
             if provider_id not in providers:
-                raise ValueError(f"Provider adapter is not implemented: {provider_id}")
+                raise ValueError(f"Provider is not enabled in the provider registry: {provider_id}")
             schedule.programmes = providers[provider_id].fetch_programmes(
                 mapping["providerChannelId"], days
             )
