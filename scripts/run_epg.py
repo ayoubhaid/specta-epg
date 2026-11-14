@@ -36,7 +36,7 @@ def main() -> int:
         records = discover(args.provider)
         destination = Path(args.output)
         destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_text(json.dumps(records, indent=2, ensure_ascii=False) + "\\n", encoding="utf-8")
+        destination.write_text(json.dumps(records, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         print(f"Discovered {len(records)} channels from {args.provider}: {destination}")
         return 0
 
