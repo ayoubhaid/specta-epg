@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from . import __name__ as _providers_package
+
 from ..models import Programme
 
 
