@@ -58,6 +58,6 @@ def build(inventory_path: str, mapping_path: str, output_dir: str, days: int = 5
         1 for channel in channels if channel.id not in mappings
     )
     Path(output_dir, "coverage.json").write_text(
-        json.dumps(coverage, indent=2) + "\\n", encoding="utf-8"
+        json.dumps(coverage, indent=2) + "\n", encoding="utf-8"
     )
     return coverage
