@@ -1,48 +1,95 @@
-name: Build EPG
+name: Build Specta EPG
+
 on:
-  schedule: [{ cron: "0 */6 * * *" }]   # every 6 hours
+  schedule:
+    - cron: "0 */6 * * *"
   workflow_dispatch:
-permissions: { contents: read, pages: write, id-token: write }
-concurrency: { group: epg, cancel-in-progress: true }
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: specta-epg-pages
+  cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
-    environment: { name: github-pages, url: "${{ steps.deploy.outputs.page_url }}" }
+    timeout-minutes: 60
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 20 }
-      - uses: actions/setup-python@v5
-        with: { python-version: "3.12" }
-      - run: pip install pandas
-      - name: Get the iptv-org grabber
+      - name: Checkout Specta EPG
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run offline test suite
+        env:
+          PYTHONPATH: src
+        run: python -m unittest discover -s tests -v
+
+      - name: Check private inventory configuration
+        env:
+          INVENTORY_REPO: ${{ secrets.SPECTA_INVENTORY_REPO }}
+          INVENTORY_TOKEN: ${{ secrets.SPECTA_INVENTORY_TOKEN }}
         run: |
-          git clone --depth 1 https://github.com/iptv-org/epg.git grabber
-          cp -r custom_sites/* grabber/sites/ 2>/dev/null || true
-          cd grabber && npm install
-      - name: Match my channels to scrapers
+          if [ -z "$INVENTORY_REPO" ] || [ -z "$INVENTORY_TOKEN" ]; then
+            echo "::error::Configure SPECTA_INVENTORY_REPO and SPECTA_INVENTORY_TOKEN secrets for the private Specta channel inventory."
+            exit 1
+          fi
+
+      - name: Checkout private Specta inventory
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.SPECTA_INVENTORY_REPO }}
+          token: ${{ secrets.SPECTA_INVENTORY_TOKEN }}
+          path: private-inventory
+          persist-credentials: false
+
+      - name: Discover beIN provider channel IDs
         run: |
-          mkdir -p build
-          python scripts/build_channels.py grabber build
-      - name: Scrape
+          python scripts/run_epg.py discover --provider bein_mena --output build/bein-provider-catalog.json
+
+      - name: Build curated EPG feeds
+        env:
+          SPECTA_INVENTORY_PATH: private-inventory/channels.xml
+          BEIN_REGION: en-mena
+          EPG_DAYS: "5"
+          REQUEST_DELAY_MS: "500"
         run: |
-          cd grabber
-          echo "channels to grab: $(grep -c '<channel ' ../build/custom.channels.xml || true)"
-          npm run grab -- --channels=../build/custom.channels.xml --output=../build/raw.xml \
-            --maxConnections=5 --days=3 --timeout=30000 2>&1 | tee ../build/grab.full.log | tail -n 40 || true
-          grep -E '^\[info\]' ../build/grab.full.log > ../build/grab.log || true
-          ls -la ../build
-          # fall back to the default output path if --output was ignored
-          [ -f ../build/raw.xml ] || { [ -f guide.xml ] && cp guide.xml ../build/raw.xml; } || true
-      - name: Build final XMLTV
-        run: |
-          mkdir -p public
-          python scripts/merge_guide.py build/raw.xml build/mapping.json public/guide.xml
-          cp build/coverage.csv public/coverage.csv
-          cp build/grab.log public/grab.log 2>/dev/null || true
-      - uses: actions/upload-pages-artifact@v3
-        with: { path: public }
-      - id: deploy
+          python scripts/run_epg.py build \
+            --inventory "$SPECTA_INVENTORY_PATH" \
+            --mapping config/channel-mapping.json \
+            --output-dir public \
+            --days "$EPG_DAYS"
+
+      - name: Upload build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: specta-epg-build-diagnostics
+          path: |
+            build/
+            public/coverage.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+      - name: Deploy to GitHub Pages
+        id: deployment
         uses: actions/deploy-pages@v4
