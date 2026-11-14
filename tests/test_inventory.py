@@ -34,6 +34,21 @@ class InventoryTests(unittest.TestCase):
                 '</channelInventory>'
             )
 
+    def test_rejects_urls_hidden_in_text(self):
+        with self.assertRaisesRegex(ValueError, "URL or credential"):
+            self._load(
+                '<channelInventory schemaVersion="1"><channel id="a" name="A">'
+                '<alias>https://private.example/playlist.m3u</alias>'
+                '</channel></channelInventory>'
+            )
+
+    def test_rejects_unknown_fields(self):
+        with self.assertRaisesRegex(ValueError, "unsupported attributes"):
+            self._load(
+                '<channelInventory schemaVersion="1"><channel id="a" name="A" extra="x"/>'
+                '</channelInventory>'
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
