@@ -31,7 +31,7 @@ def load_reviewed_mappings(path: str | Path) -> dict[str, dict]:
     return result
 
 
-_QUALITY = re.compile(r"\\b(hd|fhd|uhd|sd|4k|8k|hevc|50fps|60fps|backup)\\b", re.I)
+_QUALITY = re.compile(r"\b(hd|fhd|uhd|sd|4k|8k|hevc|50fps|60fps|backup)\b", re.I)
 
 
 def normalize_channel_name(value: str) -> str:
@@ -59,7 +59,8 @@ def write_mapping_suggestions(inventory, provider_channels: list[dict], provider
             status, method = "ambiguous_review_required", "exact_normalized_name_multiple_candidates"
         else:
             status, method = "unmatched", ""
-        counts["suggested" if len(candidates) == 1 else "ambiguous" if candidates else "unmatched"] += 1
+        bucket = "suggested" if len(candidates) == 1 else "ambiguous" if candidates else "unmatched"
+        counts[bucket] += 1
         if not candidates:
             rows.append([channel.id, channel.name, provider_id, "", "", method, status, "false"])
         else:
