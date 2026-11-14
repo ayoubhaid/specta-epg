@@ -1,8 +1,5 @@
-Put your own scrapers here, one folder per site, same layout as iptv-org/epg:
+# Custom provider adapters
 
-  custom_sites/example.com/example.com.config.js
-  custom_sites/example.com/example.com.channels.xml
+Custom integrations belong in `src/specta_epg/providers/` and implement the native Specta adapter interface in `base.py`.
 
-The workflow copies them into the grabber's `sites/` folder, so build_channels.py
-picks their channels up automatically (matching by xmltv_id or name).
-Config template: https://github.com/iptv-org/epg/blob/master/CONTRIBUTING.md
+Do not copy third-party scraper implementations or their framework-specific directory formats. Document each source, implement its own parser/client, add offline fixtures, and use reviewed channel mappings.
