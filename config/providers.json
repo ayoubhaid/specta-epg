@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "providers": [
+    {
+      "id": "bein_mena",
+      "name": "beIN SPORTS MENA",
+      "adapter": "bein_mena",
+      "enabled": true,
+      "sourcePage": "https://www.beinsports.com/en-mena/tv-guide",
+      "region": "en-mena",
+      "status": "implemented"
+    }
+  ]
+}

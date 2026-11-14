@@ -1,0 +1,7 @@
+# Local build products and private inventory
+/build/
+/public/
+/private-inventory/
+/__pycache__/
+*.py[cod]
+.venv/
