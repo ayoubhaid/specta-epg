@@ -41,7 +41,7 @@ PYTHONPATH=src python -m unittest discover -s tests -v
 python scripts/run_epg.py discover --provider bein_mena --output build/bein-catalog.json
 ```
 
-To build locally, provide a private inventory file and reviewed mappings:
+To prepare mapping suggestions locally, run:\n\n```bash\npython scripts/run_epg.py suggest --provider bein_mena --inventory /secure/path/channels.xml --output build/bein-mapping-review.csv\n```\n\nReview that CSV manually; it is never auto-approved. To build locally, provide a private inventory file and reviewed mappings:
 
 ```bash
 SPECTA_INVENTORY_PATH=/secure/path/channels.xml \
