@@ -1,0 +1,9 @@
+[project]
+name = "specta-epg"
+version = "0.2.0"
+description = "Independent curated EPG pipeline for Specta"
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
